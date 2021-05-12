@@ -1,0 +1,189 @@
+version: "3.9"
+
+networks:
+  monitor-net:
+    ipam: 
+      driver: default
+      config: 
+        - subnet: "172.16.212.0/24"
+
+volumes:
+    prometheus_data: {}
+    grafana_data: {}
+
+services:
+
+  prometheus:
+    hostname: prometheus
+    image: prom/prometheus
+    container_name: prometheus
+    volumes:
+      - ./prometheus:/etc/prometheus
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+    expose:
+      - 9090
+    networks:
+      monitor-net:
+        ipv4_address: 172.16.212.10
+
+    labels:
+      org.label-schema.group: "monitoring"
+
+  alertmanager:
+    hostname: alertmanager
+    image: prom/alertmanager
+    container_name: alertmanager
+    volumes:
+      - ./alertmanager:/etc/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/config.yml'
+      - '--storage.path=/alertmanager'
+    restart: unless-stopped
+    expose:
+      - 9093
+    networks:
+      monitor-net:
+        ipv4_address: 172.16.212.11
+    labels:
+      org.label-schema.group: "monitoring"
+
+  nodeexporter:
+    hostname: nodeexporter
+    image: prom/node-exporter
+    container_name: nodeexporter
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.ignored-mount-points=^/(sys|proc|dev|host|etc)($$|/)'
+    restart: unless-stopped
+    expose:
+      - 9100
+    networks:
+      monitor-net:
+        ipv4_address: 172.16.212.12
+    labels:
+      org.label-schema.group: "monitoring"
+
+  cadvisor:
+    hostname: cadvisor
+    image: google/cadvisor
+    container_name: cadvisor
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /cgroup:/cgroup:ro 
+    restart: unless-stopped
+    expose:
+      - 8080
+    networks:
+      monitor-net:
+        ipv4_address: 172.16.212.13
+    labels:
+      org.label-schema.group: "monitoring"
+
+  grafana:
+    hostname: grafana
+    image: grafana/grafana
+    container_name: grafana
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    environment:
+      - GF_SECURITY_ADMIN_USER=${ADMIN_USER}
+      - GF_SECURITY_ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    restart: unless-stopped
+    expose:
+      - 3000
+    networks:
+      monitor-net: 
+        ipv4_address: 172.16.212.14
+    labels:
+      org.label-schema.group: "monitoring"
+
+  pushgateway:
+    hostname: pushgateway
+    image: prom/pushgateway
+    container_name: pushgateway
+    restart: unless-stopped
+    expose:
+      - 9091
+    networks:
+      monitor-net: 
+        ipv4_address: 172.16.212.15
+    labels:
+      org.label-schema.group: "monitoring"
+
+  caddy:
+    hostname: caddy
+    image: caddy
+    container_name: caddy
+    ports:
+      - "3000:3000"
+      - "9090:9090"
+      - "9093:9093"
+      - "9091:9091"
+      - "3100:3100"
+    volumes:
+      - ./caddy:/etc/caddy
+      - /opt/logs/caddy:/var/logs/
+    restart: unless-stopped
+    logging: 
+      driver: journald
+      options: 
+        mode: non-blocking
+
+    networks:
+      monitor-net:
+        ipv4_address: 172.16.212.16
+    labels:
+      org.label-schema.group: "monitoring"
+
+  loki: 
+    hostname: loki
+    image: grafana/loki
+    container_name: loki 
+    expose: 
+      - 3100
+    volumes: 
+      - ./loki/config.yaml:/etc/loki/config.yaml
+    command: -config.file=/etc/loki/local-config.yaml
+    networks: 
+      monitor-net: 
+        ipv4_address: 172.16.212.17
+    labels: 
+      org.label-schema.group: "monitoring"
+    
+  promtail:
+    hostname: promtail
+    depends_on: 
+      - loki 
+    image: grafana/promtail 
+    container_name: promtail
+    volumes: 
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /etc/machine-id:/etc/machine-id:ro
+      - ./promtail:/etc/promtail-config/
+    command: -config.file=/etc/promtail-config/promtail.yml
+    networks: 
+      monitor-net: 
+        ipv4_address: 172.16.212.18 
+    labels: 
+      org.label-schema.group: "monitoring"
+

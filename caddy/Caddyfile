@@ -1,0 +1,27 @@
+{ 
+    auto_https off
+}
+172.16.212.10:9090 {
+    reverse_proxy / prometheus:9090 
+    log {
+	output file /var/log/access.log
+}
+}
+
+172.16.212.11:9093 {
+    reverse_proxy / alertmanager:9093  
+}
+
+172.16.212.15:9091 {
+    reverse_proxy / pushgateway:9091 
+}
+
+172.16.212.14:3000 {
+    reverse_proxy / grafana:3000
+    log {
+	output file /var/log/access.log
+}
+}
+172.16.212.17:3100 {
+    reverse_proxy / loki:3100
+}
